@@ -905,7 +905,7 @@
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./service-worker_v2.js").catch((error) => {
+      navigator.serviceWorker.register("./service-worker.js").catch((error) => {
         console.warn("オフライン機能を開始できませんでした。", error);
       });
     });

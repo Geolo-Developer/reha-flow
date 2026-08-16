@@ -1,9 +1,9 @@
 const CACHE_NAME = "reha-flow-static-v2";
 const APP_FILES = [
-  "./index_v2.html",
-  "./styles_v2.css",
-  "./app_v2.js",
-  "./manifest_v2.webmanifest"
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.webmanifest"
 ];
 
 self.addEventListener("install", (event) => {
@@ -35,7 +35,7 @@ self.addEventListener("fetch", (event) => {
       .catch(async () => {
         const cached = await caches.match(event.request);
         if (cached) return cached;
-        if (event.request.mode === "navigate") return caches.match("./index_v2.html");
+        if (event.request.mode === "navigate") return caches.match("./index.html");
         return Response.error();
       })
   );
