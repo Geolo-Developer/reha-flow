@@ -1,9 +1,12 @@
-const CACHE_NAME = "reha-flow-static-v2";
+const CACHE_NAME = "reha-flow-static-v3";
 const APP_FILES = [
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest"
+  "./manifest.webmanifest",
+  "./icons/apple-touch-icon.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
