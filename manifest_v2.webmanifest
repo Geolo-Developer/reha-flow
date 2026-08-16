@@ -1,0 +1,12 @@
+{
+  "name": "Reha Flow｜リハビリチェック",
+  "short_name": "Reha Flow",
+  "description": "毎日の運動メニューと達成状況を端末内に記録する個人用アプリ",
+  "lang": "ja",
+  "start_url": "./index_v2.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fc",
+  "theme_color": "#3157d5",
+  "orientation": "any"
+}

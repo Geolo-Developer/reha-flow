@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#3157d5" />
+    <meta
+      name="description"
+      content="毎日の運動を気持ちよく続けるための、個人用メニュー・記録アプリです。"
+    />
+    <title>Reha Flow｜リハビリチェック</title>
+    <link rel="manifest" href="./manifest_v2.webmanifest" />
+    <link rel="stylesheet" href="./styles_v2.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">本文へ移動</a>
+
+    <header class="hero-header">
+      <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+      <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+
+      <div class="container header-content">
+        <div class="brand-row">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">R</span>
+            <div>
+              <p class="brand-name">Reha Flow</p>
+              <p class="brand-tagline">今日の一歩を、心地よく。</p>
+            </div>
+          </div>
+          <div id="streak-badge" class="streak-badge" hidden></div>
+        </div>
+
+        <div class="date-card" aria-label="表示する日付">
+          <button id="previous-day" class="date-arrow" type="button" aria-label="前の日へ">‹</button>
+          <div class="date-center">
+            <p id="date-primary" class="date-primary"></p>
+            <p id="date-secondary" class="date-secondary"></p>
+            <input id="date-picker" class="date-picker" type="date" aria-label="日付を選ぶ" />
+          </div>
+          <button id="next-day" class="date-arrow" type="button" aria-label="次の日へ">›</button>
+        </div>
+
+        <div class="quick-dates" aria-label="日付のショートカット">
+          <button id="today-button" type="button">今日</button>
+          <button id="tomorrow-button" type="button">明日</button>
+          <label class="calendar-button" for="date-picker"><span aria-hidden="true">▦</span> 日付を選ぶ</label>
+        </div>
+
+        <nav class="tabs" aria-label="画面の切り替え">
+          <button id="tab-checklist" class="tab is-active" type="button" data-tab="checklist" aria-selected="true">
+            <span aria-hidden="true">✓</span> メニュー
+          </button>
+          <button id="tab-stats" class="tab" type="button" data-tab="stats" aria-selected="false">
+            <span aria-hidden="true">▥</span> ふりかえり
+          </button>
+          <button id="tab-settings" class="tab" type="button" data-tab="settings" aria-selected="false">
+            <span aria-hidden="true">⚙</span> 使い方
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" class="container main-content">
+      <section id="panel-checklist" class="tab-panel" aria-labelledby="tab-checklist">
+        <div id="future-note" class="future-note" hidden>
+          <span aria-hidden="true">🌱</span>
+          <div>
+            <strong>未来の予定を表示しています</strong>
+            <p>メニューの確認・編集と動画の再生ができます。チェック記録は当日になってから使えます。</p>
+          </div>
+        </div>
+
+        <section id="progress-card" class="progress-card">
+          <div class="progress-copy">
+            <p id="progress-eyebrow" class="eyebrow">選択日の達成度</p>
+            <h1 id="daily-message" class="daily-message"></h1>
+            <p id="daily-submessage" class="daily-submessage"></p>
+            <div class="progress-actions">
+              <button id="edit-toggle" class="edit-button" type="button">✎ メニューを編集</button>
+            </div>
+          </div>
+          <div id="progress-ring" class="progress-ring" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-ring-inner">
+              <strong id="progress-percent">0%</strong>
+              <span id="progress-count">0 / 0</span>
+            </div>
+          </div>
+        </section>
+
+        <div id="edit-note" class="edit-note" hidden>
+          <strong>編集モード</strong>
+          <span>ここでの変更は、同じ曜日区分のメニューにも反映されます。</span>
+        </div>
+
+        <aside class="safety-note">
+          <span aria-hidden="true">♡</span>
+          体調が悪いときや痛みが強くなったときは無理をせず、中止して専門家に相談してください。
+        </aside>
+
+        <div id="menu-sections" class="menu-sections"></div>
+      </section>
+
+      <section id="panel-stats" class="tab-panel" aria-labelledby="tab-stats" hidden>
+        <section class="celebration-card">
+          <div>
+            <p class="eyebrow light">積み重ねは力になる</p>
+            <h2>7日間のふりかえり</h2>
+            <p id="weekly-message">できた日も休んだ日も、次の一歩につながる大切な記録です。</p>
+          </div>
+          <span class="celebration-mark" aria-hidden="true">✦</span>
+          <div class="summary-grid">
+            <div>
+              <span>現在の連続記録</span>
+              <strong id="summary-streak">0日</strong>
+            </div>
+            <div>
+              <span>7日間の平均</span>
+              <strong id="summary-average">0%</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="surface-card chart-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">最近のペース</p>
+              <h2>直近7日間の達成率</h2>
+            </div>
+          </div>
+          <div id="weekly-chart" class="weekly-chart" role="img" aria-label="直近7日間の達成率グラフ"></div>
+        </section>
+      </section>
+
+      <section id="panel-settings" class="tab-panel" aria-labelledby="tab-settings" hidden>
+        <section class="surface-card settings-card">
+          <p class="eyebrow">かんたん設定</p>
+          <h2>使い方とデータ管理</h2>
+
+          <div class="settings-block install-block">
+            <div class="settings-icon blue" aria-hidden="true">＋</div>
+            <div>
+              <h3>ホーム画面に追加</h3>
+              <p>
+                公開したURLをスマートフォンで開き、iPhoneはSafariの共有メニュー、AndroidはChromeのメニューから
+                「ホーム画面に追加」を選ぶと、アプリのように開けます。
+              </p>
+              <button id="install-button" class="primary-button" type="button" hidden>この端末に追加</button>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <div class="settings-icon red" aria-hidden="true">▶</div>
+            <div>
+              <h3>YouTube動画を登録</h3>
+              <p>
+                YouTubeアプリの「共有」からURLをコピーし、編集モードのURL欄へ貼り付けます。
+                登録後は「動画を見る」ボタンから開けます。動画の視聴にはインターネット接続が必要です。
+              </p>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <div class="settings-icon green" aria-hidden="true">↓</div>
+            <div>
+              <h3>記録の保存とバックアップ</h3>
+              <p>
+                記録とメニューは、このブラウザの中だけに自動保存されます。ブラウザのデータを消す前や、
+                別の端末へ移す前にバックアップしてください。
+              </p>
+              <div class="button-row">
+                <button id="export-button" class="secondary-button" type="button">バックアップを書き出す</button>
+                <button id="import-button" class="secondary-button" type="button">バックアップを読み込む</button>
+                <input id="import-file" type="file" accept="application/json,.json" hidden />
+              </div>
+            </div>
+          </div>
+
+          <div class="privacy-note">
+            <strong>プライバシーについて</strong>
+            <p>
+              アクセス解析・広告・外部フォントは使用していません。チェック記録と貼り付けたURLは端末内に保存されます。
+            </p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <noscript>
+      <p class="noscript-message">このアプリを使うにはJavaScriptを有効にしてください。</p>
+    </noscript>
+    <script src="./app_v2.js" defer></script>
+  </body>
+</html>
