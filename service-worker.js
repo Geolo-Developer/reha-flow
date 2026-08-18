@@ -1,4 +1,4 @@
-const CACHE_NAME = "reha-flow-static-v3";
+const CACHE_NAME = "reha-flow-static-v4";
 const APP_FILES = [
   "./index.html",
   "./styles.css",

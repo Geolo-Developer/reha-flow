@@ -2,8 +2,20 @@
   "use strict";
 
   const STORAGE_KEY = "rehab-check-app-v2";
+  const SCHEMA_VERSION = 4;
+  const MAX_SECTIONS = 100;
   const MAX_MENU_ITEMS = 200;
   const MAX_RECORDS = 5000;
+  const SECTION_TONES = ["orange", "blue", "purple", "green", "night"];
+  const WEEKDAY_CHOICES = [
+    { value: 1, label: "月" },
+    { value: 2, label: "火" },
+    { value: 3, label: "水" },
+    { value: 4, label: "木" },
+    { value: 5, label: "金" },
+    { value: 6, label: "土" },
+    { value: 0, label: "日" }
+  ];
 
   const INITIAL_MENU_TEXT = {
     everyday: {
@@ -96,20 +108,14 @@
     }
   };
 
-  const SECTION_SCHEMA = {
-    everyday: ["morning", "night"],
-    mwf: ["morning", "afternoon"],
-    tt: ["morning", "afternoon"]
-  };
-
-  const SECTION_APPEARANCE = {
-    "everyday-morning": { tone: "orange", icon: "☀" },
-    "mwf-morning": { tone: "blue", icon: "✦" },
-    "mwf-afternoon": { tone: "purple", icon: "◆" },
-    "tt-morning": { tone: "blue", icon: "✦" },
-    "tt-afternoon": { tone: "purple", icon: "◆" },
-    "everyday-night": { tone: "night", icon: "☾" }
-  };
+  const LEGACY_SECTION_DEFINITIONS = [
+    { id: "everyday-morning", groupId: "everyday", timeId: "morning", schedule: { type: "daily" }, tone: "orange", icon: "☀" },
+    { id: "mwf-morning", groupId: "mwf", timeId: "morning", schedule: { type: "weekly", days: [1, 3, 5] }, tone: "blue", icon: "✦" },
+    { id: "mwf-afternoon", groupId: "mwf", timeId: "afternoon", schedule: { type: "weekly", days: [1, 3, 5] }, tone: "purple", icon: "◆" },
+    { id: "tt-morning", groupId: "tt", timeId: "morning", schedule: { type: "weekly", days: [2, 4] }, tone: "blue", icon: "✦" },
+    { id: "tt-afternoon", groupId: "tt", timeId: "afternoon", schedule: { type: "weekly", days: [2, 4] }, tone: "purple", icon: "◆" },
+    { id: "everyday-night", groupId: "everyday", timeId: "night", schedule: { type: "daily" }, tone: "night", icon: "☾" }
+  ];
 
   const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -132,6 +138,8 @@
     progressPercent: document.querySelector("#progress-percent"),
     progressCount: document.querySelector("#progress-count"),
     editToggle: document.querySelector("#edit-toggle"),
+    editToolbar: document.querySelector("#edit-toolbar"),
+    editFinish: document.querySelector("#edit-finish"),
     editNote: document.querySelector("#edit-note"),
     menuSections: document.querySelector("#menu-sections"),
     weeklyMessage: document.querySelector("#weekly-message"),
@@ -147,6 +155,8 @@
 
   let selectedDate = todayString();
   let isEditing = false;
+  let isAddingSection = false;
+  const collapsedSectionIds = new Set();
   let deferredInstallPrompt = null;
   let toastTimer = null;
   let state = loadState();
@@ -160,22 +170,26 @@
     return `item-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  function createInitialMenu() {
-    const menu = clone(INITIAL_MENU_TEXT);
-    Object.entries(SECTION_SCHEMA).forEach(([groupId, timeIds]) => {
-      timeIds.forEach((timeId) => {
-        menu[groupId][timeId].items = menu[groupId][timeId].items.map((text, index) => ({
-          id: `${groupId}-${timeId}-${String(index + 1).padStart(2, "0")}`,
+  function createInitialSections() {
+    return LEGACY_SECTION_DEFINITIONS.map((definition) => {
+      const source = INITIAL_MENU_TEXT[definition.groupId][definition.timeId];
+      return {
+        id: definition.id,
+        title: source.title,
+        schedule: clone(definition.schedule),
+        tone: definition.tone,
+        icon: definition.icon,
+        items: source.items.map((text, index) => ({
+          id: `${definition.id}-${String(index + 1).padStart(2, "0")}`,
           text,
           url: ""
-        }));
-      });
+        }))
+      };
     });
-    return menu;
   }
 
   function createInitialState() {
-    return { version: 3, menu: createInitialMenu(), records: {} };
+    return { version: SCHEMA_VERSION, sections: createInitialSections(), records: {} };
   }
 
   function normalizeText(value, fallback, maxLength) {
@@ -206,40 +220,97 @@
     }
   }
 
-  function normalizeMenu(input) {
-    const defaults = createInitialMenu();
-    const result = createInitialMenu();
+  function normalizeIcon(value, fallback = "●") {
+    const text = normalizeText(value, fallback, 16);
+    return Array.from(text).slice(0, 4).join("") || fallback;
+  }
 
-    Object.entries(SECTION_SCHEMA).forEach(([groupId, timeIds]) => {
-      timeIds.forEach((timeId) => {
-        const source = input?.[groupId]?.[timeId];
-        const fallback = defaults[groupId][timeId];
-        result[groupId][timeId].title = normalizeText(source?.title, fallback.title, 80);
-        if (!Array.isArray(source?.items)) return;
+  function normalizeSchedule(input, fallback = { type: "daily" }) {
+    if (input?.type === "daily") return { type: "daily" };
+    if (input?.type === "weekly" && Array.isArray(input.days)) {
+      const days = [...new Set(input.days.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))];
+      if (days.length > 0) return { type: "weekly", days };
+    }
+    return clone(fallback);
+  }
 
-        const usedIds = new Set();
-        const items = [];
-        source.items.slice(0, MAX_MENU_ITEMS).forEach((item, index) => {
-          const rawText = typeof item === "string" ? item : item?.text;
-          const text = normalizeText(rawText, "", 120);
-          if (!text) return;
+  function normalizeItems(input, sectionId) {
+    if (!Array.isArray(input)) return [];
+    const usedIds = new Set();
+    const items = [];
 
-          let id = normalizeText(
-            typeof item === "object" ? item?.id : "",
-            `${groupId}-${timeId}-import-${index}`,
-            100
-          ).replace(/[^a-zA-Z0-9_-]/g, "-");
-          if (!id || usedIds.has(id)) id = createId();
-          usedIds.add(id);
+    input.slice(0, MAX_MENU_ITEMS).forEach((item, index) => {
+      const rawText = typeof item === "string" ? item : item?.text;
+      const text = normalizeText(rawText, "", 120);
+      if (!text) return;
 
-          const urlResult = normalizeYouTubeUrl(typeof item === "object" ? item?.url : "");
-          items.push({ id, text, url: urlResult.valid ? urlResult.url : "" });
-        });
-        result[groupId][timeId].items = items;
+      let id = normalizeText(
+        typeof item === "object" ? item?.id : "",
+        `${sectionId}-import-${index}`,
+        100
+      ).replace(/[^a-zA-Z0-9_-]/g, "-");
+      if (!id || usedIds.has(id)) id = createId();
+      usedIds.add(id);
+
+      const urlResult = normalizeYouTubeUrl(typeof item === "object" ? item?.url : "");
+      items.push({ id, text, url: urlResult.valid ? urlResult.url : "" });
+    });
+
+    return items;
+  }
+
+  function normalizeSections(input) {
+    if (!Array.isArray(input)) return createInitialSections();
+    const defaults = new Map(createInitialSections().map((section) => [section.id, section]));
+    const usedIds = new Set();
+    const sections = [];
+
+    input.slice(0, MAX_SECTIONS).forEach((source) => {
+      if (!source || typeof source !== "object") return;
+      const requestedId = normalizeText(source.id, "", 100).replace(/[^a-zA-Z0-9_-]/g, "-");
+      let id = requestedId || `section-${createId()}`;
+      if (usedIds.has(id)) id = `section-${createId()}`;
+      usedIds.add(id);
+
+      const fallback = defaults.get(id);
+      const fallbackSchedule = fallback?.schedule || { type: "daily" };
+      const tone = SECTION_TONES.includes(source.tone) ? source.tone : fallback?.tone || "blue";
+      const itemsSource = Array.isArray(source.items) ? source.items : fallback?.items || [];
+      sections.push({
+        id,
+        title: normalizeText(source.title, fallback?.title || "新しい大分類", 80),
+        schedule: normalizeSchedule(source.schedule, fallbackSchedule),
+        tone,
+        icon: normalizeIcon(source.icon, fallback?.icon || "●"),
+        items: normalizeItems(itemsSource, id)
       });
     });
 
-    return result;
+    return sections;
+  }
+
+  function migrateLegacyMenu(input) {
+    const defaults = createInitialSections();
+    return LEGACY_SECTION_DEFINITIONS.map((definition, index) => {
+      const fallback = defaults[index];
+      const source = input?.[definition.groupId]?.[definition.timeId];
+      return {
+        ...fallback,
+        title: normalizeText(source?.title, fallback.title, 80),
+        items: Array.isArray(source?.items) ? normalizeItems(source.items, definition.id) : fallback.items
+      };
+    });
+  }
+
+  function normalizeState(input) {
+    const sections = Array.isArray(input?.sections)
+      ? normalizeSections(input.sections)
+      : migrateLegacyMenu(input?.menu);
+    return {
+      version: SCHEMA_VERSION,
+      sections,
+      records: sanitizeRecords(input?.records)
+    };
   }
 
   function clampNumber(value, min, max) {
@@ -278,11 +349,11 @@
       const saved = localStorage.getItem(STORAGE_KEY);
       if (!saved) return createInitialState();
       const parsed = JSON.parse(saved);
-      return {
-        version: 3,
-        menu: normalizeMenu(parsed.menu),
-        records: sanitizeRecords(parsed.records)
-      };
+      const normalized = normalizeState(parsed);
+      if (parsed.version !== SCHEMA_VERSION || !Array.isArray(parsed.sections)) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      }
+      return normalized;
     } catch (error) {
       console.warn("保存データを読み込めませんでした。", error);
       return createInitialState();
@@ -327,30 +398,20 @@
     return dateString > todayString();
   }
 
-  function getSections(dateString) {
+  function scheduleMatchesDate(schedule, dateString) {
+    if (schedule?.type === "daily") return true;
     const day = parseLocalDate(dateString).getDay();
-    const weekdayGroup = [1, 3, 5].includes(day) ? "mwf" : [2, 4].includes(day) ? "tt" : null;
-    const sectionRefs = [
-      { groupId: "everyday", timeId: "morning" },
-      ...(weekdayGroup
-        ? [
-            { groupId: weekdayGroup, timeId: "morning" },
-            { groupId: weekdayGroup, timeId: "afternoon" }
-          ]
-        : []),
-      { groupId: "everyday", timeId: "night" }
-    ];
+    return schedule?.type === "weekly" && Array.isArray(schedule.days) && schedule.days.includes(day);
+  }
 
-    return sectionRefs.map(({ groupId, timeId }) => {
-      const id = `${groupId}-${timeId}`;
-      return {
-        id,
-        groupId,
-        timeId,
-        ...SECTION_APPEARANCE[id],
-        ...state.menu[groupId][timeId]
-      };
-    });
+  function formatSchedule(schedule) {
+    if (schedule?.type === "daily") return "毎日";
+    const days = WEEKDAY_CHOICES.filter((choice) => schedule?.days?.includes(choice.value)).map((choice) => choice.label);
+    return days.length > 0 ? `${days.join("・")}曜日` : "曜日未設定";
+  }
+
+  function getSections(dateString) {
+    return state.sections.filter((section) => scheduleMatchesDate(section.schedule, dateString));
   }
 
   function getProgress(dateString) {
@@ -495,15 +556,14 @@
     return row;
   }
 
-  function createEditItem(section, item) {
+  function createEditItem(section, item, itemIndex) {
     const row = document.createElement("li");
     row.className = "menu-item";
 
     const form = document.createElement("form");
     form.className = "edit-item-form";
     form.dataset.action = "update";
-    form.dataset.groupId = section.groupId;
-    form.dataset.timeId = section.timeId;
+    form.dataset.sectionId = section.id;
     form.dataset.itemId = item.id;
 
     const fields = document.createElement("div");
@@ -515,6 +575,29 @@
 
     const actions = document.createElement("div");
     actions.className = "edit-item-actions";
+
+    const orderActions = document.createElement("div");
+    orderActions.className = "item-order-actions";
+    const moveUpButton = document.createElement("button");
+    moveUpButton.type = "button";
+    moveUpButton.className = "order-button";
+    moveUpButton.textContent = "↑ 上へ";
+    moveUpButton.disabled = itemIndex === 0;
+    moveUpButton.dataset.action = "move-item-up";
+    moveUpButton.dataset.sectionId = section.id;
+    moveUpButton.dataset.itemId = item.id;
+    moveUpButton.setAttribute("aria-label", `${item.text}を上へ移動`);
+    const moveDownButton = document.createElement("button");
+    moveDownButton.type = "button";
+    moveDownButton.className = "order-button";
+    moveDownButton.textContent = "↓ 下へ";
+    moveDownButton.disabled = itemIndex === section.items.length - 1;
+    moveDownButton.dataset.action = "move-item-down";
+    moveDownButton.dataset.sectionId = section.id;
+    moveDownButton.dataset.itemId = item.id;
+    moveDownButton.setAttribute("aria-label", `${item.text}を下へ移動`);
+    orderActions.append(moveUpButton, moveDownButton);
+
     const saveButton = document.createElement("button");
     saveButton.type = "submit";
     saveButton.className = "save-item-button";
@@ -523,12 +606,11 @@
     deleteButton.type = "button";
     deleteButton.className = "delete-item-button";
     deleteButton.textContent = "外す";
-    deleteButton.dataset.action = "delete";
-    deleteButton.dataset.groupId = section.groupId;
-    deleteButton.dataset.timeId = section.timeId;
+    deleteButton.dataset.action = "delete-item";
+    deleteButton.dataset.sectionId = section.id;
     deleteButton.dataset.itemId = item.id;
     deleteButton.setAttribute("aria-label", `${item.text}をメニューから外す`);
-    actions.append(saveButton, deleteButton);
+    actions.append(orderActions, saveButton, deleteButton);
 
     form.append(fields, actions);
     row.append(form);
@@ -558,12 +640,172 @@
     return label;
   }
 
+  function createLabeledSelect(labelText, name, options, value) {
+    const label = document.createElement("label");
+    label.className = "field-label";
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = labelText;
+    const select = document.createElement("select");
+    select.name = name;
+    select.className = "select-input";
+    options.forEach((optionData) => {
+      const option = document.createElement("option");
+      option.value = optionData.value;
+      option.textContent = optionData.label;
+      option.selected = optionData.value === value;
+      select.append(option);
+    });
+    label.append(labelSpan, select);
+    return label;
+  }
+
+  function getSchedulePreset(schedule) {
+    if (schedule?.type === "daily") return "daily";
+    const days = [...(schedule?.days || [])].sort((a, b) => a - b).join(",");
+    if (days === "1,3,5") return "mwf";
+    if (days === "2,4") return "tt";
+    return "custom";
+  }
+
+  function createScheduleFields(schedule, fieldId) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "schedule-fields";
+    const preset = getSchedulePreset(schedule);
+    const presetField = createLabeledSelect(
+      "表示する曜日",
+      "schedulePreset",
+      [
+        { value: "daily", label: "毎日" },
+        { value: "mwf", label: "月・水・金" },
+        { value: "tt", label: "火・木" },
+        { value: "custom", label: "曜日を選ぶ" }
+      ],
+      preset
+    );
+
+    const select = presetField.querySelector("select");
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "weekday-fieldset";
+    fieldset.hidden = preset !== "custom";
+    const legend = document.createElement("legend");
+    legend.textContent = "表示する曜日（複数選択可）";
+    fieldset.append(legend);
+
+    WEEKDAY_CHOICES.forEach((choice) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "scheduleDay";
+      input.value = String(choice.value);
+      input.id = `${fieldId}-day-${choice.value}`;
+      input.checked = schedule?.type === "weekly" && schedule.days.includes(choice.value);
+      const text = document.createElement("span");
+      text.textContent = choice.label;
+      label.htmlFor = input.id;
+      label.append(input, text);
+      fieldset.append(label);
+    });
+
+    select.addEventListener("change", () => {
+      fieldset.hidden = select.value !== "custom";
+    });
+    wrapper.append(presetField, fieldset);
+    return wrapper;
+  }
+
+  function createSectionFields(section, fieldId) {
+    const fields = document.createElement("div");
+    fields.className = "section-fields";
+    const titleField = createLabeledInput("大分類名", "sectionTitle", "text", section.title, "例：毎日 朝体操", "text-input");
+    const iconField = createLabeledInput("アイコン", "sectionIcon", "text", section.icon, "例：☀", "text-input icon-input");
+    iconField.querySelector("input").maxLength = 8;
+    const toneField = createLabeledSelect(
+      "色テーマ",
+      "sectionTone",
+      [
+        { value: "orange", label: "オレンジ" },
+        { value: "blue", label: "ブルー" },
+        { value: "purple", label: "パープル" },
+        { value: "green", label: "グリーン" },
+        { value: "night", label: "ナイト" }
+      ],
+      section.tone
+    );
+    fields.append(titleField, iconField, toneField, createScheduleFields(section.schedule, fieldId));
+    return fields;
+  }
+
+  function createSectionEditor(section) {
+    const form = document.createElement("form");
+    form.className = "section-edit-form";
+    form.dataset.action = "update-section";
+    form.dataset.sectionId = section.id;
+    form.append(createSectionFields(section, `section-${section.id}`));
+
+    const actions = document.createElement("div");
+    actions.className = "section-edit-actions";
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "save-section-button";
+    saveButton.textContent = "大分類を保存";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "delete-section-button";
+    deleteButton.dataset.action = "delete-section";
+    deleteButton.dataset.sectionId = section.id;
+    deleteButton.textContent = "大分類を削除";
+    actions.append(saveButton, deleteButton);
+    form.append(actions);
+    return form;
+  }
+
+  function createAddSectionPanel() {
+    const panel = document.createElement("section");
+    panel.className = "add-section-panel";
+    if (!isAddingSection) {
+      const showButton = document.createElement("button");
+      showButton.type = "button";
+      showButton.className = "add-section-button";
+      showButton.dataset.action = "show-add-section";
+      showButton.textContent = "＋ 大分類を追加";
+      panel.append(showButton);
+      return panel;
+    }
+
+    const form = document.createElement("form");
+    form.className = "section-add-form";
+    form.dataset.action = "add-section";
+    const heading = document.createElement("h2");
+    heading.textContent = "新しい大分類";
+    form.append(
+      heading,
+      createSectionFields(
+        { title: "", icon: "●", tone: "blue", schedule: { type: "daily" } },
+        "new-section"
+      )
+    );
+    const actions = document.createElement("div");
+    actions.className = "section-edit-actions";
+    const addButton = document.createElement("button");
+    addButton.type = "submit";
+    addButton.className = "save-section-button";
+    addButton.textContent = "大分類を追加する";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "cancel-section-button";
+    cancelButton.dataset.action = "cancel-add-section";
+    cancelButton.textContent = "キャンセル";
+    actions.append(addButton, cancelButton);
+    form.append(actions);
+    panel.append(form);
+    return panel;
+  }
+
   function createAddForm(section) {
     const form = document.createElement("form");
     form.className = "add-item-form";
     form.dataset.action = "add";
-    form.dataset.groupId = section.groupId;
-    form.dataset.timeId = section.timeId;
+    form.dataset.sectionId = section.id;
 
     const title = document.createElement("p");
     title.className = "add-form-title";
@@ -586,42 +828,103 @@
   }
 
   function renderMenus() {
-    const sections = getSections(selectedDate);
+    const sections = isEditing ? state.sections : getSections(selectedDate);
     const checkedItems = state.records[selectedDate]?.checkedItems || {};
     const fragment = document.createDocumentFragment();
 
-    sections.forEach((section) => {
+    if (sections.length === 0 && !isEditing) {
+      const empty = document.createElement("div");
+      empty.className = "no-sections-message";
+      empty.textContent = "この日に表示するメニューはありません。編集モードから大分類を追加できます。";
+      fragment.append(empty);
+    }
+
+    sections.forEach((section, sectionIndex) => {
+      const isCollapsed = collapsedSectionIds.has(section.id);
+      const completed = section.items.filter((item) => checkedItems[`${section.id}:${item.id}`]).length;
       const card = document.createElement("section");
-      card.className = `menu-card ${section.tone}`;
+      card.className = `menu-card ${section.tone}${isCollapsed ? " is-collapsed" : ""}`;
 
       const header = document.createElement("div");
       header.className = "menu-header";
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.className = "menu-collapse-toggle";
+      toggleButton.dataset.action = "toggle-section";
+      toggleButton.dataset.sectionId = section.id;
+      toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
+      toggleButton.setAttribute("aria-label", `${section.title}を${isCollapsed ? "開く" : "閉じる"}`);
       const icon = document.createElement("span");
       icon.className = "menu-icon";
       icon.setAttribute("aria-hidden", "true");
       icon.textContent = section.icon;
+      const heading = document.createElement("span");
+      heading.className = "menu-heading";
       const title = document.createElement("h2");
       title.textContent = section.title;
-      header.append(icon, title);
+      const meta = document.createElement("span");
+      meta.className = "menu-meta";
+      meta.textContent = `${formatSchedule(section.schedule)} ・ ${completed} / ${section.items.length} 完了`;
+      heading.append(title, meta);
+      const chevron = document.createElement("span");
+      chevron.className = "collapse-mark";
+      chevron.setAttribute("aria-hidden", "true");
+      chevron.textContent = isCollapsed ? "＋" : "－";
+      toggleButton.append(icon, heading, chevron);
+      header.append(toggleButton);
 
-      const list = document.createElement("ul");
-      list.className = "menu-list";
-      if (section.items.length === 0) {
-        const empty = document.createElement("li");
-        empty.className = "empty-message";
-        empty.textContent = "メニューはまだありません。編集モードから追加できます。";
-        list.append(empty);
-      } else {
-        section.items.forEach((item) => {
-          const checked = Boolean(checkedItems[`${section.id}:${item.id}`]);
-          list.append(isEditing ? createEditItem(section, item) : createNormalItem(section, item, checked));
-        });
+      if (isEditing) {
+        const sectionOrderActions = document.createElement("div");
+        sectionOrderActions.className = "section-order-actions";
+        const upButton = document.createElement("button");
+        upButton.type = "button";
+        upButton.className = "order-button";
+        upButton.dataset.action = "move-section-up";
+        upButton.dataset.sectionId = section.id;
+        upButton.disabled = sectionIndex === 0;
+        upButton.textContent = "↑ 上へ";
+        upButton.setAttribute("aria-label", `${section.title}を上へ移動`);
+        const downButton = document.createElement("button");
+        downButton.type = "button";
+        downButton.className = "order-button";
+        downButton.dataset.action = "move-section-down";
+        downButton.dataset.sectionId = section.id;
+        downButton.disabled = sectionIndex === sections.length - 1;
+        downButton.textContent = "↓ 下へ";
+        downButton.setAttribute("aria-label", `${section.title}を下へ移動`);
+        sectionOrderActions.append(upButton, downButton);
+        header.append(sectionOrderActions);
       }
 
-      card.append(header, list);
-      if (isEditing) card.append(createAddForm(section));
+      card.append(header);
+
+      if (!isCollapsed) {
+        const body = document.createElement("div");
+        body.className = "menu-card-body";
+        if (isEditing) body.append(createSectionEditor(section));
+
+        const list = document.createElement("ul");
+        list.className = "menu-list";
+        if (section.items.length === 0) {
+          const empty = document.createElement("li");
+          empty.className = "empty-message";
+          empty.textContent = "メニューはまだありません。編集モードから追加できます。";
+          list.append(empty);
+        } else {
+          section.items.forEach((item, itemIndex) => {
+            const checked = Boolean(checkedItems[`${section.id}:${item.id}`]);
+            list.append(isEditing ? createEditItem(section, item, itemIndex) : createNormalItem(section, item, checked));
+          });
+        }
+
+        body.append(list);
+        if (isEditing) body.append(createAddForm(section));
+        card.append(body);
+      }
       fragment.append(card);
     });
+
+    if (isEditing) fragment.append(createAddSectionPanel());
 
     elements.menuSections.replaceChildren(fragment);
   }
@@ -676,8 +979,17 @@
 
   function renderEditState() {
     elements.editNote.hidden = !isEditing;
+    elements.editToolbar.hidden = !isEditing;
+    document.body.classList.toggle("is-editing", isEditing);
     elements.editToggle.classList.toggle("is-active", isEditing);
     elements.editToggle.textContent = isEditing ? "✓ 編集を終える" : "✎ メニューを編集";
+  }
+
+  function setEditing(nextEditing) {
+    isEditing = nextEditing;
+    if (!isEditing) isAddingSection = false;
+    renderEditState();
+    renderMenus();
   }
 
   function renderAll() {
@@ -692,6 +1004,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return;
     selectedDate = dateString;
     isEditing = false;
+    isAddingSection = false;
     renderAll();
   }
 
@@ -715,8 +1028,98 @@
     renderAll();
   }
 
-  function getSection(groupId, timeId) {
-    return state.menu[groupId]?.[timeId] || null;
+  function getSection(sectionId) {
+    return state.sections.find((section) => section.id === sectionId) || null;
+  }
+
+  function readScheduleForm(formData, form) {
+    const preset = formData.get("schedulePreset");
+    if (preset === "daily") return { type: "daily" };
+    if (preset === "mwf") return { type: "weekly", days: [1, 3, 5] };
+    if (preset === "tt") return { type: "weekly", days: [2, 4] };
+    const days = [...new Set(formData.getAll("scheduleDay").map(Number).filter((day) => Number.isInteger(day)))];
+    if (days.length === 0) {
+      showToast("表示する曜日を1つ以上選んでください。");
+      form.querySelector('input[name="scheduleDay"]')?.focus();
+      return null;
+    }
+    return { type: "weekly", days };
+  }
+
+  function readSectionForm(form) {
+    const formData = new FormData(form);
+    const title = normalizeText(formData.get("sectionTitle"), "", 80);
+    if (!title) {
+      showToast("大分類名を入力してください。");
+      form.elements.sectionTitle?.focus();
+      return null;
+    }
+    const schedule = readScheduleForm(formData, form);
+    if (!schedule) return null;
+    const toneValue = String(formData.get("sectionTone") || "");
+    return {
+      title,
+      icon: normalizeIcon(formData.get("sectionIcon"), "●"),
+      tone: SECTION_TONES.includes(toneValue) ? toneValue : "blue",
+      schedule
+    };
+  }
+
+  function addSection(form) {
+    if (state.sections.length >= MAX_SECTIONS) {
+      showToast("追加できる大分類は100件までです。");
+      return;
+    }
+    const values = readSectionForm(form);
+    if (!values) return;
+    let id = `section-${createId()}`;
+    while (getSection(id)) id = `section-${createId()}`;
+    state.sections.push({ id, ...values, items: [] });
+    isAddingSection = false;
+    saveState("大分類を追加しました。");
+    renderAll();
+  }
+
+  function updateSection(form) {
+    const section = getSection(form.dataset.sectionId);
+    if (!section) return;
+    const values = readSectionForm(form);
+    if (!values) return;
+    section.title = values.title;
+    section.icon = values.icon;
+    section.tone = values.tone;
+    section.schedule = values.schedule;
+    saveState("大分類を保存しました。");
+    renderAll();
+  }
+
+  function deleteSection(button) {
+    const section = getSection(button.dataset.sectionId);
+    if (!section) return;
+    if (!window.confirm("この大分類と中のメニューを削除しますか？\n過去のチェック記録は削除されません。")) return;
+    state.sections = state.sections.filter((candidate) => candidate.id !== section.id);
+    collapsedSectionIds.delete(section.id);
+    saveState("大分類を削除しました。過去のチェック記録は保持されています。");
+    renderAll();
+  }
+
+  function moveSection(sectionId, direction) {
+    const index = state.sections.findIndex((section) => section.id === sectionId);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= state.sections.length) return;
+    [state.sections[index], state.sections[targetIndex]] = [state.sections[targetIndex], state.sections[index]];
+    saveState("大分類の順番を変更しました。");
+    renderAll();
+  }
+
+  function moveMenuItem(sectionId, itemId, direction) {
+    const section = getSection(sectionId);
+    const index = section?.items.findIndex((item) => item.id === itemId) ?? -1;
+    const targetIndex = index + direction;
+    if (!section || index < 0 || targetIndex < 0 || targetIndex >= section.items.length) return;
+    [section.items[index], section.items[targetIndex]] = [section.items[targetIndex], section.items[index]];
+    saveState("メニューの順番を変更しました。");
+    renderAll();
   }
 
   function readMenuForm(form) {
@@ -737,7 +1140,7 @@
   }
 
   function addMenuItem(form) {
-    const section = getSection(form.dataset.groupId, form.dataset.timeId);
+    const section = getSection(form.dataset.sectionId);
     if (!section) return;
     if (section.items.length >= MAX_MENU_ITEMS) {
       showToast("1つの時間帯に追加できるのは200件までです。");
@@ -751,7 +1154,7 @@
   }
 
   function updateMenuItem(form) {
-    const section = getSection(form.dataset.groupId, form.dataset.timeId);
+    const section = getSection(form.dataset.sectionId);
     const item = section?.items.find((candidate) => candidate.id === form.dataset.itemId);
     if (!item) return;
     const values = readMenuForm(form);
@@ -763,7 +1166,7 @@
   }
 
   function deleteMenuItem(button) {
-    const section = getSection(button.dataset.groupId, button.dataset.timeId);
+    const section = getSection(button.dataset.sectionId);
     const item = section?.items.find((candidate) => candidate.id === button.dataset.itemId);
     if (!item) return;
     if (!window.confirm(`「${item.text}」をメニューから外しますか？`)) return;
@@ -787,7 +1190,7 @@
   function exportBackup() {
     const backup = {
       app: "Reha Flow",
-      schemaVersion: 3,
+      schemaVersion: SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       data: state
     };
@@ -812,12 +1215,9 @@
     try {
       const parsed = JSON.parse(await file.text());
       const imported = parsed?.data || parsed;
-      if (!imported?.menu || !imported?.records) throw new Error("形式が異なります");
-      const nextState = {
-        version: 3,
-        menu: normalizeMenu(imported.menu),
-        records: sanitizeRecords(imported.records)
-      };
+      const hasMenu = Array.isArray(imported?.sections) || (imported?.menu && typeof imported.menu === "object");
+      if (!hasMenu || !imported?.records || typeof imported.records !== "object") throw new Error("形式が異なります");
+      const nextState = normalizeState(imported);
       if (!window.confirm("現在の記録とメニューを、選んだバックアップの内容に置き換えますか？")) return;
       state = nextState;
       selectedDate = todayString();
@@ -857,10 +1257,9 @@
   });
 
   elements.editToggle.addEventListener("click", () => {
-    isEditing = !isEditing;
-    renderEditState();
-    renderMenus();
+    setEditing(!isEditing);
   });
+  elements.editFinish.addEventListener("click", () => setEditing(false));
 
   elements.menuSections.addEventListener("change", (event) => {
     const checkbox = event.target.closest('[data-action="toggle"]');
@@ -868,8 +1267,29 @@
   });
 
   elements.menuSections.addEventListener("click", (event) => {
-    const deleteButton = event.target.closest('button[data-action="delete"]');
-    if (deleteButton) deleteMenuItem(deleteButton);
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const { action, sectionId, itemId } = button.dataset;
+    if (action === "toggle-section") {
+      if (collapsedSectionIds.has(sectionId)) collapsedSectionIds.delete(sectionId);
+      else collapsedSectionIds.add(sectionId);
+      renderMenus();
+    }
+    if (action === "move-section-up") moveSection(sectionId, -1);
+    if (action === "move-section-down") moveSection(sectionId, 1);
+    if (action === "move-item-up") moveMenuItem(sectionId, itemId, -1);
+    if (action === "move-item-down") moveMenuItem(sectionId, itemId, 1);
+    if (action === "delete-item") deleteMenuItem(button);
+    if (action === "delete-section") deleteSection(button);
+    if (action === "show-add-section") {
+      isAddingSection = true;
+      renderMenus();
+      elements.menuSections.querySelector('.section-add-form input[name="sectionTitle"]')?.focus();
+    }
+    if (action === "cancel-add-section") {
+      isAddingSection = false;
+      renderMenus();
+    }
   });
 
   elements.menuSections.addEventListener("submit", (event) => {
@@ -878,6 +1298,8 @@
     event.preventDefault();
     if (form.dataset.action === "add") addMenuItem(form);
     if (form.dataset.action === "update") updateMenuItem(form);
+    if (form.dataset.action === "add-section") addSection(form);
+    if (form.dataset.action === "update-section") updateSection(form);
   });
 
   elements.exportButton.addEventListener("click", exportBackup);

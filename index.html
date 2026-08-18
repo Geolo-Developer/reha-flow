@@ -16,6 +16,13 @@
   <body>
     <a class="skip-link" href="#main-content">本文へ移動</a>
 
+    <div id="edit-toolbar" class="edit-toolbar" hidden>
+      <div class="edit-toolbar-inner">
+        <strong><span aria-hidden="true">✎</span> 編集中</strong>
+        <button id="edit-finish" type="button">編集を終了</button>
+      </div>
+    </div>
+
     <header class="hero-header">
       <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
       <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
@@ -91,7 +98,7 @@
 
         <div id="edit-note" class="edit-note" hidden>
           <strong>編集モード</strong>
-          <span>ここでの変更は、同じ曜日区分のメニューにも反映されます。</span>
+          <span>すべての大分類・曜日設定・メニューを編集できます。変更内容は自動保存されます。</span>
         </div>
 
         <aside class="safety-note">

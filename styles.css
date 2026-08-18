@@ -40,7 +40,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -55,6 +56,7 @@ button,
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 a:focus-visible,
 .calendar-button:focus-within {
   outline: 3px solid rgba(85, 122, 240, 0.38);
@@ -87,6 +89,51 @@ p {
 
 .skip-link:focus {
   transform: translateY(0);
+}
+
+.edit-toolbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 90;
+  padding: calc(7px + env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 7px
+    max(10px, env(safe-area-inset-left));
+  background: rgba(25, 34, 75, 0.96);
+  color: white;
+  box-shadow: 0 8px 24px rgba(18, 27, 58, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.edit-toolbar[hidden] {
+  display: none;
+}
+
+.edit-toolbar-inner {
+  display: flex;
+  width: min(100%, 780px);
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-inline: auto;
+}
+
+.edit-toolbar-inner strong {
+  font-size: 0.95rem;
+}
+
+.edit-toolbar-inner button {
+  min-width: 132px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: white;
+  color: #293f9f;
+  font-weight: 900;
+}
+
+body.is-editing {
+  padding-top: calc(62px + env(safe-area-inset-top));
 }
 
 .container {
@@ -493,9 +540,33 @@ p {
 
 .menu-header {
   display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 11px 13px;
+}
+
+.menu-collapse-toggle {
+  display: flex;
+  flex: 1 1 280px;
+  min-width: 0;
   align-items: center;
   gap: 12px;
-  padding: 15px 17px;
+  padding: 4px;
+  border-radius: 13px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.menu-collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.menu-heading {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
 }
 
 .menu-icon {
@@ -512,8 +583,35 @@ p {
 
 .menu-header h2 {
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: 1.02rem;
   line-height: 1.4;
+}
+
+.menu-meta {
+  color: currentColor;
+  font-size: 0.7rem;
+  font-weight: 750;
+  opacity: 0.75;
+}
+
+.collapse-mark {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.48);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.section-order-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
 }
 
 .menu-card.orange {
@@ -541,6 +639,15 @@ p {
 .purple .menu-header {
   background: linear-gradient(135deg, #f1edff, #e7e0ff);
   color: #654ba8;
+}
+
+.menu-card.green {
+  border-color: #cce8dc;
+}
+
+.green .menu-header {
+  background: linear-gradient(135deg, #eaf8f2, #d9f2e8);
+  color: #28775d;
 }
 
 .menu-card.night {
@@ -659,9 +766,153 @@ p {
 }
 
 .edit-item-form,
-.add-item-form {
+.add-item-form,
+.section-edit-form,
+.section-add-form {
   padding: 14px;
   background: #fbfcff;
+}
+
+.section-edit-form {
+  border-top: 1px solid #e6eaf4;
+  border-bottom: 1px solid #e6eaf4;
+  background: #f7f8fc;
+}
+
+.section-add-form {
+  border: 1px solid #d8def0;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 12px 30px rgba(38, 49, 91, 0.08);
+}
+
+.section-add-form h2 {
+  margin-bottom: 14px;
+  font-size: 1.05rem;
+}
+
+.section-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(86px, 0.65fr) minmax(125px, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.schedule-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(0, 1.8fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.weekday-fieldset {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(44px, 1fr));
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weekday-fieldset[hidden] {
+  display: none;
+}
+
+.weekday-fieldset legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  color: #727c97;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.weekday-fieldset label {
+  display: flex;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1px solid #d5dbea;
+  border-radius: 10px;
+  background: white;
+  color: #55607e;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.weekday-fieldset input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.section-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.save-section-button,
+.delete-section-button,
+.cancel-section-button,
+.add-section-button,
+.order-button {
+  min-height: 44px;
+  padding: 8px 13px;
+  border-radius: 11px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.save-section-button,
+.add-section-button {
+  background: linear-gradient(135deg, #3157d5, #6656d8);
+  color: white;
+  box-shadow: 0 7px 18px rgba(49, 87, 213, 0.2);
+}
+
+.delete-section-button {
+  background: #fff0f0;
+  color: #b93838;
+}
+
+.cancel-section-button,
+.order-button {
+  border: 1px solid #d7ddeb;
+  background: #f4f6fa;
+  color: #55607e;
+}
+
+.section-order-actions .order-button {
+  min-width: 74px;
+  background: rgba(255, 255, 255, 0.58);
+  color: inherit;
+}
+
+.add-section-panel {
+  padding: 4px 0;
+}
+
+.add-section-button {
+  width: 100%;
+  min-height: 52px;
+  font-size: 0.92rem;
+}
+
+.no-sections-message {
+  padding: 24px 18px;
+  border: 1px dashed #cfd6e6;
+  border-radius: 18px;
+  background: white;
+  color: var(--muted);
+  text-align: center;
 }
 
 .edit-item-form {
@@ -684,7 +935,8 @@ p {
 }
 
 .text-input,
-.url-input {
+.url-input,
+.select-input {
   width: 100%;
   min-height: 44px;
   padding: 9px 11px;
@@ -692,6 +944,10 @@ p {
   border-radius: 11px;
   background: white;
   color: var(--ink);
+}
+
+.icon-input {
+  text-align: center;
 }
 
 .url-field-wrap {
@@ -717,6 +973,12 @@ p {
   flex-direction: column;
   gap: 8px;
   justify-content: end;
+}
+
+.item-order-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 7px;
 }
 
 .save-item-button,
@@ -1010,10 +1272,44 @@ p {
 
   .edit-item-actions {
     flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .edit-item-actions > button {
     flex: 1;
+  }
+
+  .item-order-actions {
+    flex: 1 1 100%;
+  }
+
+  .menu-header {
+    flex-wrap: wrap;
+  }
+
+  .section-order-actions {
+    flex: 1 1 100%;
+  }
+
+  .section-order-actions .order-button {
+    flex: 1;
+  }
+
+  .section-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr);
+  }
+
+  .section-fields > .field-label:first-child,
+  .schedule-fields {
+    grid-column: 1 / -1;
+  }
+
+  .schedule-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .weekday-fieldset {
+    grid-template-columns: repeat(4, minmax(44px, 1fr));
   }
 
   .add-fields {
@@ -1066,6 +1362,19 @@ p {
   .button-row > button {
     width: 100%;
   }
+
+  .edit-toolbar-inner {
+    gap: 8px;
+  }
+
+  .edit-toolbar-inner button {
+    min-width: 120px;
+    padding-inline: 12px;
+  }
+
+  .section-edit-actions > button {
+    flex: 1 1 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1084,6 +1393,7 @@ p {
   .progress-actions,
   .future-note,
   .edit-note,
+  .edit-toolbar,
   .safety-note,
   .toast {
     display: none !important;
